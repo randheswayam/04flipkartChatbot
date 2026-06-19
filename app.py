@@ -4,6 +4,8 @@ import os
 from dotenv import load_dotenv
 from utils.data_loader import load_all_data
 from core.llm import get_chat_response
+from core.product_engine import list_all_products, search_product
+from core.faq_engine import initialize_faq_database, query_faq, get_faq_count
 
 # Load environment variables from .env
 load_dotenv()
@@ -17,7 +19,7 @@ st.set_page_config(
 
 # App Title
 st.title("🛒 Flipkart AI Customer Support")
-st.caption("Phase 3: Groq LLM Persona Chat")
+st.caption("Phase 5: FAQ Search & Vector Store (ChromaDB Engine)")
 
 # Load data at startup (cached)
 @st.cache_data
@@ -25,6 +27,10 @@ def get_cached_data():
     return load_all_data("data")
 
 datasets, warnings = get_cached_data()
+
+# Initialize FAQ Database with loaded faqs.csv
+if datasets and "faqs.csv" in datasets:
+    initialize_faq_database(datasets["faqs.csv"])
 
 # Render Sidebar Information
 st.sidebar.title("System Status")
@@ -44,23 +50,35 @@ if warnings:
         st.sidebar.warning(f"**{filename}**:\n{warn_msg}")
 
 st.sidebar.markdown("---")
+
+# ChromaDB status
 st.sidebar.subheader("🔍 Vector DB (ChromaDB)")
-st.sidebar.info("⏳ Initialization Pending (Phase 5)")
+faq_count = get_faq_count()
+if faq_count > 0:
+    st.sidebar.success(f"✅ {faq_count} FAQs indexed")
+else:
+    st.sidebar.warning("⚠️ No FAQs indexed")
 
 # Display model status based on API key presence
 st.sidebar.subheader("💬 Model Details")
 api_key_loaded = bool(os.getenv("GROQ_API_KEY"))
 if api_key_loaded:
-    st.sidebar.success("🤖 llama3-8b-8192 (Active)")
+    st.sidebar.success("🤖 llama-3.1-8b-instant (Active)")
 else:
-    st.sidebar.error("🤖 llama3-8b-8192 (API Key Missing)")
+    st.sidebar.error("🤖 llama-3.1-8b-instant (API Key Missing)")
 
 # Initialize session state for messages
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "Hey! 👋 Welcome to Flipkart Support. How can I help you today?"
+            "content": (
+                "Hey! 👋 Welcome to Flipkart Support. How can I help you today?\n\n"
+                "Here are some helpful commands you can run:\n"
+                "- `/products`: Show list of products\n"
+                "- `/search [item]`: Search products by name/brand\n"
+                "- `/faq [question]`: Search our support FAQs"
+            )
         }
     ]
 
@@ -76,11 +94,27 @@ if prompt := st.chat_input("Type your message here..."):
         st.markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # Display assistant response with a simulated thinking spinner
+    # Display assistant response
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            # Call Groq LLM wrapper with chat history
-            response = get_chat_response(st.session_state.messages)
+        with st.spinner("Processing..."):
+            # Check for Phase 4 & 5 commands
+            if prompt.strip().startswith("/products"):
+                response = list_all_products(datasets.get("products.csv"))
+            elif prompt.strip().startswith("/search"):
+                parts = prompt.strip().split(maxsplit=1)
+                search_term = parts[1] if len(parts) > 1 else ""
+                response = search_product(datasets.get("products.csv"), search_term)
+            elif prompt.strip().startswith("/faq"):
+                parts = prompt.strip().split(maxsplit=1)
+                question = parts[1] if len(parts) > 1 else ""
+                if question:
+                    response = query_faq(question)
+                else:
+                    response = "Please specify a question. (e.g. `/faq return policy`)"
+            else:
+                # Fall back to Groq LLM
+                response = get_chat_response(st.session_state.messages)
+                
         st.markdown(response)
     
     st.session_state.messages.append({"role": "assistant", "content": response})
