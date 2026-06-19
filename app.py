@@ -1,17 +1,23 @@
 import streamlit as st
 import time
+import os
+from dotenv import load_dotenv
 from utils.data_loader import load_all_data
+from core.llm import get_chat_response
+
+# Load environment variables from .env
+load_dotenv()
 
 # Page configuration
 st.set_page_config(
     page_title="Flipkart AI Support Bot",
     page_icon="🛒",
-    layout="wide"
+    layout="centered"
 )
 
 # App Title
 st.title("🛒 Flipkart AI Customer Support")
-st.caption("Phase 2: Dynamic Data Loading & Sidebar Metadata")
+st.caption("Phase 3: Groq LLM Persona Chat")
 
 # Load data at startup (cached)
 @st.cache_data
@@ -41,53 +47,40 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🔍 Vector DB (ChromaDB)")
 st.sidebar.info("⏳ Initialization Pending (Phase 5)")
 
+# Display model status based on API key presence
 st.sidebar.subheader("💬 Model Details")
-st.sidebar.info("🤖 llama3-8b-8192 (Phase 3)")
+api_key_loaded = bool(os.getenv("GROQ_API_KEY"))
+if api_key_loaded:
+    st.sidebar.success("🤖 llama3-8b-8192 (Active)")
+else:
+    st.sidebar.error("🤖 llama3-8b-8192 (API Key Missing)")
 
-# Split page layout (left: chat history, right: dataset explorer preview)
-col_chat, col_preview = st.columns([2, 1])
+# Initialize session state for messages
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {
+            "role": "assistant",
+            "content": "Hey! 👋 Welcome to Flipkart Support. How can I help you today?"
+        }
+    ]
 
-with col_chat:
-    # Initialize session state for messages
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {
-                "role": "assistant",
-                "content": "Hey! 👋 Welcome to Flipkart Support. How can I help you today?"
-            }
-        ]
+# Display chat history
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-    # Display chat history
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+# User input field
+if prompt := st.chat_input("Type your message here..."):
+    # Display user message in chat
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # User input field
-    if prompt := st.chat_input("Type your message here..."):
-        # Display user message in chat
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        st.session_state.messages.append({"role": "user", "content": prompt})
-
-        # Display assistant response with a simulated thinking spinner
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                time.sleep(1)
-            
-            # Skeleton mock response echoing user message
-            response = f"Hey there! I am your Flipkart support assistant. Currently, I am running on a **Phase 2 Data Loaded UI**.\n\nI detected your message: '{prompt}'.\n\nNote that my sidebar has successfully scanned and loaded our dataset files dynamically. Soon we will hook up Groq LLM to handle your queries! 🚀"
-            st.markdown(response)
-        
-        st.session_state.messages.append({"role": "assistant", "content": response})
-
-with col_preview:
-    st.subheader("📊 Dataset Explorer")
-    if datasets:
-        selected_dataset = st.selectbox(
-            "Select dataset to preview:",
-            list(datasets.keys())
-        )
-        if selected_dataset:
-            st.dataframe(datasets[selected_dataset].head(10))
-    else:
-        st.write("No datasets available to display.")
+    # Display assistant response with a simulated thinking spinner
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            # Call Groq LLM wrapper with chat history
+            response = get_chat_response(st.session_state.messages)
+        st.markdown(response)
+    
+    st.session_state.messages.append({"role": "assistant", "content": response})
